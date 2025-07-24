@@ -1,0 +1,10 @@
+[Unit]
+Description=Arp proxy service
+After=multi-user.target
+
+[Service]
+Type=idle
+ExecStart=/usr/sbin/arpproxy
+
+[Install]
+WantedBy=multi-user.target
