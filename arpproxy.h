@@ -34,9 +34,12 @@
 #define PROTO_LEN     ETH_TLEN
 #define ETH_MAXPACKET (ETH_HLEN + IP_MAXPACKET)
 
+#define DISABLE_SEND 0 /* set to 1 to disable responses */
 #define FORCE_DEBUG 0 /* set to 1 to force on debug logging */
 
 extern int debug;
 extern int logfd;
+
+extern void aplog(const char *restrict format, ...);
 
 #endif

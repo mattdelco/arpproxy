@@ -83,23 +83,23 @@ static int ScanAdapters(RecvState *s) {
   // [vs already known] NIC appears).
   int status = getifaddrs(&ifaces);
   if (status < 0) {
-    dprintf(logfd, "Failed to get network interfaces: %u %u\n",
-	    status, errno);
+    aplog("Failed to get network interfaces: %u %u\n",
+	  status, errno);
     return 1;
   }
 
   struct ifaddrs *iface = ifaces;
   while (iface) {
     if (debug) {
-      dprintf(logfd, "Interface: %s with flags 0x%x\n",
-	      iface->ifa_name, iface->ifa_flags);
+      aplog("Interface: %s with flags 0x%x\n",
+	    iface->ifa_name, iface->ifa_flags);
     }
     // Skip the loopback interface.
     if (iface->ifa_flags & IFF_LOOPBACK) {
       if (debug) {
-	dprintf(logfd, "Skipping loopback interface: %s flags 0x%x family %d\n",
-		iface->ifa_name, iface->ifa_flags,
-		((struct sockaddr_in *)iface->ifa_addr)->sin_family);
+	aplog("Skipping loopback interface: %s flags 0x%x family %d\n",
+	      iface->ifa_name, iface->ifa_flags,
+	      ((struct sockaddr_in *)iface->ifa_addr)->sin_family);
       }
       iface = iface->ifa_next;
       continue;
@@ -108,18 +108,18 @@ static int ScanAdapters(RecvState *s) {
     if (((struct sockaddr_in *)iface->ifa_addr)->sin_family != AF_INET) {
       if (debug) {
 	// AF_PACKET=17, AF_INET6=10
-	dprintf(logfd, "Skipping non-ipv4 interface: %s family %u\n",
-		iface->ifa_name,  ((struct sockaddr_in *)iface->ifa_addr)->sin_family);
+	aplog("Skipping non-ipv4 interface: %s family %u\n",
+	      iface->ifa_name,  ((struct sockaddr_in *)iface->ifa_addr)->sin_family);
       }
       iface = iface->ifa_next;
       continue;
     }
     // Skip the interface if it's not up or doesn't have broadcast.
     if (!(iface->ifa_flags & IFF_UP) || !(iface->ifa_flags & IFF_BROADCAST)) {
-      dprintf(logfd, "Interface %s with flags 0x%x family %u "
-	      "doesn't have up broadcast interface\n",
-	      iface->ifa_name, iface->ifa_flags,
-	      ((struct sockaddr_in *)iface->ifa_addr)->sin_family);
+      aplog("Interface %s with flags 0x%x family %u "
+	    "doesn't have up broadcast interface\n",
+	    iface->ifa_name, iface->ifa_flags,
+	    ((struct sockaddr_in *)iface->ifa_addr)->sin_family);
       iface = iface->ifa_next;
       continue;
     }
@@ -128,12 +128,12 @@ static int ScanAdapters(RecvState *s) {
     if (s->num_other_interfaces < ARRAYSIZE(s->other_interfaces)) {
       s->other_interfaces[s->num_other_interfaces] = strdup(iface->ifa_name);
       if (!s->other_interfaces[s->num_other_interfaces]) {
-	dprintf(logfd, "Failed to dup interface name: %s\n", iface->ifa_name);
+	aplog("Failed to dup interface name: %s\n", iface->ifa_name);
       } else {
 	++s->num_other_interfaces;
       }
     } else {
-      dprintf(logfd, "ERROR: need to increase MAX_ALT_INTERFACES\n");
+      aplog("ERROR: need to increase MAX_ALT_INTERFACES\n");
     }
     
     // If we haven't already picked a NIC (or we previously picked
@@ -142,13 +142,13 @@ static int ScanAdapters(RecvState *s) {
     // power than a wireless NIC.
     if (!s->net_interface || (s->net_interface[0] == 'w' && iface->ifa_name[0] == 'e')) {
       if (debug) {
-	dprintf(logfd, "Considering interface: %s with flags 0x%x\n",
-		iface->ifa_name, iface->ifa_flags);
+	aplog("Considering interface: %s with flags 0x%x\n",
+	      iface->ifa_name, iface->ifa_flags);
       }
       free(s->net_interface);
       s->net_interface = strdup(iface->ifa_name);
       if (!s->net_interface) {
-	dprintf(logfd, "Failed to dup interface name: %s\n", iface->ifa_name);
+	aplog("Failed to dup interface name: %s\n", iface->ifa_name);
       } else {
 	// Record the IP address of the NIC.
 	memcpy(&(s->local_ip), iface->ifa_addr, sizeof s->local_ip);
@@ -167,7 +167,7 @@ int FindAdapter(RecvState *s) {
   // Create a socket for receiving traffic.
   s->recv_sock = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ARP));
   if (s->recv_sock < 0) {
-    dprintf(logfd, "Failed to allocate recv socket: %d\n", errno);
+    aplog("Failed to allocate recv socket: %d\n", errno);
     return 1;
   }
 
@@ -178,11 +178,11 @@ int FindAdapter(RecvState *s) {
 
   time_t now = time(NULL);
   if (!s->net_interface) {
-    dprintf(logfd, "Failed to determine a suitable interface (time is %ld)\n", now);
+    aplog("Failed to determine a suitable interface (time is %ld)\n", now);
     FreeRecvState(s);
     return 1;
   }
-  dprintf(logfd, "Using interface: %s (time is %ld)\n", s->net_interface, now);
+  aplog("Using interface: %s (time is %ld)\n", s->net_interface, now);
 
   // Query the MAC address of the interface.
 
@@ -192,12 +192,12 @@ int FindAdapter(RecvState *s) {
 
   int query_sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
   if (query_sock < 0) {
-    dprintf(logfd, "Failed to allocate query socket: %d\n", errno);
+    aplog("Failed to allocate query socket: %d\n", errno);
     FreeRecvState(s);
     return 1;
   }
   if (ioctl(query_sock, SIOCGIFHWADDR, &ifr) < 0) {
-    dprintf(logfd, "Failed to get source MAC address: %d\n", errno);
+    aplog("Failed to get source MAC address: %d\n", errno);
     failed = 1;
   }
   close(query_sock);
@@ -205,24 +205,25 @@ int FindAdapter(RecvState *s) {
     FreeRecvState(s);
     return 1;
   }
+
   memcpy(&(s->local_mac), ifr.ifr_hwaddr.sa_data, sizeof s->local_mac);
   if (debug) {
-    dprintf(logfd, "Local MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
-	    s->local_mac[0], s->local_mac[1], s->local_mac[2],
-	    s->local_mac[3], s->local_mac[4], s->local_mac[5]);
+    aplog("Local MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
+	  s->local_mac[0], s->local_mac[1], s->local_mac[2],
+	  s->local_mac[3], s->local_mac[4], s->local_mac[5]);
   }
   memcpy(&(s->device_sockaddr.sll_addr), &(s->local_mac), sizeof s->local_mac);
 
   // Lookup the interface number.
   if ((s->device_sockaddr.sll_ifindex = if_nametoindex(s->net_interface)) == 0) {
-    dprintf(logfd, "Failed to obtain interface index for %s: %d\n",
-            s->net_interface, errno);
+    aplog("Failed to obtain interface index for %s: %d\n",
+	  s->net_interface, errno);
     FreeRecvState(s);
     return 1;
   }
   if (debug) {
-    dprintf(logfd, "Index for interface %s is %i\n", s->net_interface,
-            s->device_sockaddr.sll_ifindex);
+    aplog("Index for interface %s is %i\n", s->net_interface,
+	  s->device_sockaddr.sll_ifindex);
   }
 
   // Request promiscuous mode on the interface.
@@ -233,7 +234,7 @@ int FindAdapter(RecvState *s) {
   int status = setsockopt(s->recv_sock, SOL_PACKET, PACKET_ADD_MEMBERSHIP,
 			  &request, sizeof request);
   if (status != 0) {
-    dprintf(logfd, "Add membership failed: %d %d\n", status, errno);
+    aplog("Add membership failed: %d %d\n", status, errno);
     FreeRecvState(s);
     return 1;
   }

@@ -42,10 +42,10 @@ void SendRouteQuery(const RecvState *state, int nl) {
   request.message.rtm_scope = RT_SCOPE_UNIVERSE;
   request.message.rtm_type = RTN_UNICAST;
   if (send(nl, &request, request.header.nlmsg_len, 0) < 0) {
-    dprintf(logfd, "Failed to send route request: %d\n", errno);
+    aplog("Failed to send route request: %d\n", errno);
   }
   if (debug) {
-    dprintf(logfd, "Sent route request\n");
+    aplog("Sent route request\n");
   }
 }
 
@@ -56,18 +56,18 @@ int CheckCanIgnore(const RecvState *state, struct nlmsghdr *msg, ssize_t len) {
   for (struct nlmsghdr * nh = msg; NLMSG_OK(nh, len); nh = NLMSG_NEXT(nh, len)) {
     if (nh->nlmsg_type == NLMSG_DONE) {
       if (debug) {
-	dprintf(logfd, "Got a done message\n");
+	aplog("Got a done message\n");
       }
       break;
     }
     if (nh->nlmsg_type == NLMSG_ERROR) {
-      dprintf(logfd, "Got an error message\n");
+      aplog("Got an error message\n");
       can_ignore = 0;
       break;
     }
     if (debug) {
-      dprintf(logfd, "Got netlink msg type %u len %u flags 0x%x seq %u pid %u\n",
-	      nh->nlmsg_type, nh->nlmsg_len, nh->nlmsg_flags, nh->nlmsg_seq, nh->nlmsg_pid);
+      aplog("Got netlink msg type %u len %u flags 0x%x seq %u pid %u\n",
+	    nh->nlmsg_type, nh->nlmsg_len, nh->nlmsg_flags, nh->nlmsg_seq, nh->nlmsg_pid);
     }
     switch (nh->nlmsg_type) {
     case RTM_DELADDR:
@@ -75,37 +75,37 @@ int CheckCanIgnore(const RecvState *state, struct nlmsghdr *msg, ssize_t len) {
       struct ifaddrmsg *addr_msg = NLMSG_DATA(nh);
       const char *msg_type_string = nh->nlmsg_type == RTM_NEWADDR ? "new" : "del";
       if (debug || nh->nlmsg_type == RTM_DELADDR) {
-	printf("Got netlink %s addr fam %u prefixlen %u flags %u scope %u link index %u\n",
-	       msg_type_string,
-	       addr_msg->ifa_family, addr_msg->ifa_prefixlen, addr_msg->ifa_flags,
-	       addr_msg->ifa_scope, addr_msg->ifa_index);
+	aplog("Got netlink %s addr fam %u prefixlen %u flags %u scope %u link index %u\n",
+	      msg_type_string,
+	      addr_msg->ifa_family, addr_msg->ifa_prefixlen, addr_msg->ifa_flags,
+	      addr_msg->ifa_scope, addr_msg->ifa_index);
       }
       // don't care about addr_msg->ifa_prefixlen
       // don't care about addr_msg->ifa_flag
       // don't care about addr_msg->ifa_scope
       if (addr_msg->ifa_family != AF_INET) {
-	dprintf(logfd, "Got unexpected family %u\n", addr_msg->ifa_family);
+	aplog("Got unexpected family %u\n", addr_msg->ifa_family);
 	can_ignore = 0;
 	continue;
       }
       // For now we'll not ignore any delete message
       if (nh->nlmsg_type == RTM_DELADDR) {
 	if (debug) {
-	  dprintf(logfd, "Not ignoring delete message\n");
+	  aplog("Not ignoring delete message\n");
 	}
         can_ignore = 0;
 	continue;
       } else { // RTM_NEWADDR
 	if (!RecvStateIsValid(state)) {
 	  time_t now = time(NULL);
-	  dprintf(logfd, "Don't currently have an adapter, "
-		  "so not ignoring message (time is %ld)\n", now);
+	  aplog("Don't currently have an adapter, "
+		"so not ignoring message (time is %ld)\n", now);
 	  can_ignore = 0;
           continue;
 	} else if (addr_msg->ifa_index != state->device_sockaddr.sll_ifindex) {
 	  if (debug) {
-	    dprintf(logfd, "Index doesn't match %u vs %u\n",
-		    addr_msg->ifa_index, state->device_sockaddr.sll_ifindex);
+	    aplog("Index doesn't match %u vs %u\n",
+		  addr_msg->ifa_index, state->device_sockaddr.sll_ifindex);
 	  }
 	  can_ignore = 0;
 	  continue;
@@ -119,43 +119,43 @@ int CheckCanIgnore(const RecvState *state, struct nlmsghdr *msg, ssize_t len) {
 	   attr = RTA_NEXT(attr, all_attr_len)) {
 	int attr_len = RTA_PAYLOAD(attr);
 	if (debug) {
-	  dprintf(logfd, "Got netlink %saddr attr type %u len %u\n",
-		  msg_type_string, attr->rta_type, attr_len);
+	  aplog("Got netlink %saddr attr type %u len %u\n",
+		msg_type_string, attr->rta_type, attr_len);
 	}
 	switch(attr->rta_type) {
 	case IFA_LOCAL:
 	  if (attr_len != sizeof state->local_ip.sin_addr) {
-	    dprintf(logfd, "Local IP not expected length: %d\n", attr_len);
+	    aplog("Local IP not expected length: %d\n", attr_len);
 	    can_ignore = 0;
 	  } else {
 	    local_addr = RTA_DATA(attr);
 	    if (debug) {
-	      dprintf(logfd, "Interface IP 0x%08x\n", *(int *)local_addr);
+	      aplog("Interface IP 0x%08x\n", *(int *)local_addr);
 	    }
 	  }
 	  break;
 	case IFA_LABEL:
 	  interface_name = RTA_DATA(attr);
 	  if (debug) {
-	    dprintf(logfd, "Interface name %s\n", interface_name);
+	    aplog("Interface name %s\n", interface_name);
 	  }
 	  break;
 	case IFA_BROADCAST:
 	  // Don't care about this.
 	  if (debug) {
-	    dprintf(logfd, "Ignoring broadcast attribute\n");
+	    aplog("Ignoring broadcast attribute\n");
 	  }
 	  break;
 	case IFA_FLAGS:
 	  // Don't care about this.
 	  if (debug) {
-            dprintf(logfd, "Ignoring flags attribute\n");
+            aplog("Ignoring flags attribute\n");
           }
 	  break;
 	case IFA_CACHEINFO:
 	  // Don't care about this.
 	  if (debug) {
-            dprintf(logfd, "Ignoring cache attribute\n");
+            aplog("Ignoring cache attribute\n");
           }
 	  break;
 	default:
@@ -163,14 +163,14 @@ int CheckCanIgnore(const RecvState *state, struct nlmsghdr *msg, ssize_t len) {
 	  // IFA_ANYCAST, IFA_MULTICAST, IFA_RT_PRIORITY,
 	  // IFA_TARGET_NETNSID, or IFA_PROTO but won't ignore
 	  // them until they've actually been seen.
-	  dprintf(logfd, "Got unexpected attr type %u len %u\n",
-		  attr->rta_type, attr_len);
+	  aplog("Got unexpected attr type %u len %u\n",
+		attr->rta_type, attr_len);
 	  can_ignore = 0;
 	}
       }
       if (debug && local_addr && interface_name) {
-	dprintf(logfd, "Notification for interface %s with IP 0x%08x\n",
-		interface_name, *(int *)local_addr);
+	aplog("Notification for interface %s with IP 0x%08x\n",
+	      interface_name, *(int *)local_addr);
       }
       if (interface_name) {
 	int recogize_interface = 0;
@@ -178,27 +178,28 @@ int CheckCanIgnore(const RecvState *state, struct nlmsghdr *msg, ssize_t len) {
 	  if (strcmp(state->other_interfaces[i], interface_name) == 0) {
 	    recogize_interface = 1;
 	  }
-	  if (strcmp(state->net_interface, interface_name) == 0) {
+	  if (state->net_interface &&
+	      strcmp(state->net_interface, interface_name) == 0) {
 	    for_this_interface = 1;
 	  }
 	}
 	if (!recogize_interface) {
-	  dprintf(logfd, "Interface not recognized: %s\n", interface_name);
+	  aplog("Interface not recognized: %s\n", interface_name);
 	  can_ignore = 0;
 	} else if (debug) {
-	  dprintf(logfd, "Recognized interface: %s\n", interface_name);
+	  aplog("Recognized interface: %s\n", interface_name);
 	}
       }
       // We only care about addr change if it's for this interface.
       if (local_addr && for_this_interface) {
         if (memcmp(&(state->local_ip.sin_addr), local_addr,
 		   sizeof state->local_ip.sin_addr)) {
-	  dprintf(logfd, "Interface IP changed from 0x%08x to 0x%08x\n",
-		  *(int *)&(state->local_ip.sin_addr), *(int *)local_addr);
+	  aplog("Interface IP changed from 0x%08x to 0x%08x\n",
+		*(int *)&(state->local_ip.sin_addr), *(int *)local_addr);
 	  can_ignore = 0;
 	} else if (debug) {
-	  dprintf(logfd, "Interface IP matched expectation: 0x%08x\n",
-		  *(int *)&(state->local_ip.sin_addr));
+	  aplog("Interface IP matched expectation: 0x%08x\n",
+		*(int *)&(state->local_ip.sin_addr));
 	}
       }
       break;
@@ -208,14 +209,14 @@ int CheckCanIgnore(const RecvState *state, struct nlmsghdr *msg, ssize_t len) {
     case RTM_NEWROUTE: {
       struct rtmsg *msg = NLMSG_DATA(nh);
       if (debug) {
-        printf("Got netlink route fam %u destlen %u srclen %u tos %u "
-	       "table %u proto %u scope %u type %u flags %u\n",
-               msg->rtm_family, msg->rtm_dst_len, msg->rtm_src_len,
-	       msg->rtm_tos, msg->rtm_table, msg->rtm_protocol,
-	       msg->rtm_scope, msg->rtm_type, msg->rtm_flags);
+        aplog("Got netlink route fam %u destlen %u srclen %u tos %u "
+	      "table %u proto %u scope %u type %u flags %u\n",
+	      msg->rtm_family, msg->rtm_dst_len, msg->rtm_src_len,
+	      msg->rtm_tos, msg->rtm_table, msg->rtm_protocol,
+	      msg->rtm_scope, msg->rtm_type, msg->rtm_flags);
       }
       if (msg->rtm_family != AF_INET) {
-        dprintf(logfd, "Got unexpected route family %u\n", msg->rtm_family);
+        aplog("Got unexpected route family %u\n", msg->rtm_family);
         continue;
       }
       int all_attr_len = nh->nlmsg_len - NLMSG_LENGTH(sizeof *msg);
@@ -227,28 +228,28 @@ int CheckCanIgnore(const RecvState *state, struct nlmsghdr *msg, ssize_t len) {
            attr = RTA_NEXT(attr, all_attr_len)) {
         int attr_len = RTA_PAYLOAD(attr);
         if (debug) {
-          dprintf(logfd, "Got netlink route attr type %u len %u\n",
-                  attr->rta_type, attr_len);
+          aplog("Got netlink route attr type %u len %u\n",
+		attr->rta_type, attr_len);
         }
         switch(attr->rta_type) {
         case RTA_DST: {
 	  int *dest = RTA_DATA(attr);
 	  if (attr_len != sizeof *dest) {
-	    dprintf(logfd, "Unexpected size %d for RTA_DST", attr_len);
+	    aplog("Unexpected size %d for RTA_DST", attr_len);
 	  } else if (debug) {
-	    dprintf(logfd, "Route dest IP 0x%08x\n", *dest);
+	    aplog("Route dest IP 0x%08x\n", *dest);
 	  }
 	  break;
 	}
 	case RTA_GATEWAY: {
           int *gateway_ptr = RTA_DATA(attr);
           if (attr_len != sizeof gateway) {
-            dprintf(logfd, "Unexpected size %d for RTA_GATEWAY", attr_len);
+            aplog("Unexpected size %d for RTA_GATEWAY", attr_len);
           } else {
 	    have_gateway = 1;
 	    gateway = *gateway_ptr;
 	    if (debug) {
-	      dprintf(logfd, "Route gateway 0x%08x\n", gateway);
+	      aplog("Route gateway 0x%08x\n", gateway);
 	    }
 	  }
           break;
@@ -256,12 +257,12 @@ int CheckCanIgnore(const RecvState *state, struct nlmsghdr *msg, ssize_t len) {
 	case RTA_OIF: {
           int *oif_ptr = RTA_DATA(attr);
 	  if (attr_len != sizeof oif) {
-	    dprintf(logfd, "Unexpected size %d for RTA_OIF", attr_len);
+	    aplog("Unexpected size %d for RTA_OIF", attr_len);
 	  } else {
 	    have_oif = 1;
 	    oif = *oif_ptr;
 	    if (debug) {
-	      dprintf(logfd, "Route oif 0x%08x\n", oif);
+	      aplog("Route oif 0x%08x\n", oif);
 	    }
 	  }
           break;
@@ -269,43 +270,43 @@ int CheckCanIgnore(const RecvState *state, struct nlmsghdr *msg, ssize_t len) {
 	case RTA_PRIORITY: {
           int *priority = RTA_DATA(attr);
           if (attr_len != sizeof *priority) {
-            dprintf(logfd, "Unexpected size %d for RTA_PRIORITY", attr_len);
+            aplog("Unexpected size %d for RTA_PRIORITY", attr_len);
           } else if (debug) {
-            dprintf(logfd, "Route priority 0x%08x\n", *priority);
+            aplog("Route priority 0x%08x\n", *priority);
           }
           break;
         }
         case RTA_TABLE: {
           int *table = RTA_DATA(attr);
           if (attr_len != sizeof *table) {
-            dprintf(logfd, "Unexpected size %d for RTA_TABLE", attr_len);
+            aplog("Unexpected size %d for RTA_TABLE", attr_len);
           } else if (debug) {
-            dprintf(logfd, "Route table 0x%08x\n", *table);
+            aplog("Route table 0x%08x\n", *table);
           }
           break;
         }
 	case RTA_UID: {
           int *uid = RTA_DATA(attr);
           if (attr_len != sizeof *uid) {
-            dprintf(logfd, "Unexpected size %d for RTA_UID", attr_len);
+            aplog("Unexpected size %d for RTA_UID", attr_len);
           } else if (debug) {
-            dprintf(logfd, "Route uid 0x%08x\n", *uid);
+            aplog("Route uid 0x%08x\n", *uid);
           }
           break;
         }
 	case RTA_PREFSRC:
 	  if (debug) {
-	    dprintf(logfd, "Ignoring RTA_PREFSRC\n");
+	    aplog("Ignoring RTA_PREFSRC\n");
 	  }
 	  break;
 	case RTA_CACHEINFO:
 	  if (debug) {
-	    dprintf(logfd, "Ignoring RTA_CACHEINFO\n");
+	    aplog("Ignoring RTA_CACHEINFO\n");
 	  }
 	  break;
 	default:
-	  dprintf(logfd, "Got unrecognized route attr type %u len %u\n",
-		  attr->rta_type, attr_len);
+	  aplog("Got unrecognized route attr type %u len %u\n",
+		attr->rta_type, attr_len);
 	  break;
 	}
       }
@@ -320,29 +321,29 @@ int CheckCanIgnore(const RecvState *state, struct nlmsghdr *msg, ssize_t len) {
 	    oif == state->device_sockaddr.sll_ifindex) {
 	  if (gateway != *(int*)&state->router) {
 	    time_t now = time(NULL);
-	    dprintf(logfd, "Updated router from %u.%u.%u.%u",
-		    state->router[0], state->router[1], state->router[2], state->router[3]);
+	    aplog("Updated router from %u.%u.%u.%u",
+		  state->router[0], state->router[1], state->router[2], state->router[3]);
 	    *(int*)&state->router = gateway;
-	    dprintf(logfd, " to %u.%u.%u.%u at %ld\n",
-                    state->router[0], state->router[1], state->router[2], state->router[3], now);
+	    aplog(" to %u.%u.%u.%u at %ld\n",
+		  state->router[0], state->router[1], state->router[2], state->router[3], now);
 	  } else if (debug) {
-	    dprintf(logfd, "Router is still accurate: %08x\n", gateway);
+	    aplog("Router is still accurate: %08x\n", gateway);
 	  }
 	} else if (debug) {
-	  dprintf(logfd, "Ignoring router update\n");
+	  aplog("Ignoring router update\n");
 	}
       }
       break;
     }
     default:
       // Other options might include RTM_GETADDR.
-      dprintf(logfd, "Got unexpected msg type %u\n", nh->nlmsg_type);
+      aplog("Got unexpected msg type %u\n", nh->nlmsg_type);
       can_ignore = 0;
     }
   }
 
   if (debug) {
-    dprintf(logfd, "Result of ignore: %d\n", can_ignore);
+    aplog("Result of ignore: %d\n", can_ignore);
   }
   return can_ignore;
 }

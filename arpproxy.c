@@ -21,6 +21,7 @@
 #include <linux/rtnetlink.h>
 #include <net/if_arp.h>
 #include <poll.h>
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
@@ -93,7 +94,7 @@ int main(int argc, char *argv[]) {
 
   {
     time_t now = time(NULL);
-    dprintf(logfd, "Starting at time %ld\n", now);
+    aplog("Starting at time %ld\n", now);
   }
 
   // Construct a buffer for using with netlink.
@@ -132,8 +133,8 @@ int main(int argc, char *argv[]) {
   if (debug) {
     for (int i = 0; i < ARRAYSIZE(targets); ++i) {
       IpTarget *target = &(targets[i]);
-      dprintf(logfd, "target: %u.%u.%u.%u\n",
-              target->ip[0], target->ip[1], target->ip[2], target->ip[3]);
+      aplog("target: %u.%u.%u.%u\n",
+	    target->ip[0], target->ip[1], target->ip[2], target->ip[3]);
     }
   }
 
@@ -144,7 +145,7 @@ int main(int argc, char *argv[]) {
   // Create a socket used to send replies.
   send_sock = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
   if (send_sock < 0) {
-    dprintf(logfd, "Failed to allocate send socket (run as sudo?): %d\n", errno);
+    aplog("Failed to allocate send socket (run as sudo?): %d\n", errno);
     goto exit;
   }
 
@@ -152,7 +153,7 @@ int main(int argc, char *argv[]) {
   // get the default gateway's IP address.
   nl = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
   if (nl < 0) {
-    dprintf(logfd, "Failed to get netlink: %d %d\n", nl, errno);
+    aplog("Failed to get netlink: %d %d\n", nl, errno);
     goto exit;
   }
 
@@ -163,7 +164,7 @@ int main(int argc, char *argv[]) {
     };
     status = bind(nl, (struct sockaddr *) &bind_addr, sizeof bind_addr);
     if (status < 0) {
-      dprintf(logfd, "Failed to bind netlink: %d %d\n", status, errno);
+      aplog("Failed to bind netlink: %d %d\n", status, errno);
       goto exit;
     }
   }
@@ -171,7 +172,7 @@ int main(int argc, char *argv[]) {
   // Craete a timerfd that's used to defer and delay (and rate-limit) certain actions.
   timer = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
   if (timer < 0) {
-    dprintf(logfd, "Failed to create timer: %d %d\n", timer, errno);
+    aplog("Failed to create timer: %d %d\n", timer, errno);
     goto exit;
   }  
 
@@ -185,7 +186,7 @@ int main(int argc, char *argv[]) {
 
   // Determine which NIC we'll use, then send a query for the NIC's default gateway.
   if (FindAdapter(&recv_state)) {
-    dprintf(logfd, "Failed to find adapter at startup\n");
+    aplog("Failed to find adapter at startup\n");
     // We won't exit but will wait for suitable adapter to appear.
   } else {
     SendRouteQuery(&recv_state, nl);
@@ -197,7 +198,7 @@ int main(int argc, char *argv[]) {
   UpdateSendBuffer(&(send_frame[0]), &recv_state);
 
   if (debug) {
-    dprintf(logfd, "Starting event loop\n");
+    aplog("Starting event loop\n");
   }
 
   for (;;) {
@@ -211,15 +212,15 @@ int main(int argc, char *argv[]) {
       poll_array[i].revents = 0;
     }
     if (debug) {
-      dprintf(logfd, "Waiting for an event\n");
+      aplog("Waiting for an event\n");
     }
     int ready = poll(poll_array, num_events, -1 /* infinite wait */);
     if (ready < 0) {
-      dprintf(logfd, "Failed to poll: %d %d\n", ready, errno);
+      aplog("Failed to poll: %d %d\n", ready, errno);
       goto exit;
     }
     if (debug) {
-      dprintf(logfd, "%d events are ready\n", ready);
+      aplog("%d events are ready\n", ready);
     }
 
     // If we received a netlink message.
@@ -227,24 +228,24 @@ int main(int argc, char *argv[]) {
       int can_ignore = 0;
       if (debug) {
 	time_t now = time(NULL);
-        dprintf(logfd, "Reading link event at %ld\n", now);
+        aplog("Reading link event at %ld\n", now);
       }
 
       // Receive a message, and if successful also check to see
       // if we can ignore the message.
       ssize_t len = recvmsg(nl, &msg, MSG_DONTWAIT);
       if (len < 0) {
-        dprintf(logfd, "Got error on link event wait: %ld %d\n", len, errno);
+        aplog("Got error on link event wait: %ld %d\n", len, errno);
       } else {
         if (debug) {
-          dprintf(logfd, "Got len %ld for link event\n", len);
+          aplog("Got len %ld for link event\n", len);
         }
 	can_ignore = CheckCanIgnore(&recv_state, &buf[0], len);
       }
 
       if (can_ignore) {
 	if (debug) {
-	  dprintf(logfd, "Ignoring link event\n");
+	  aplog("Ignoring link event\n");
 	}
       } else {
 	// If we can't ignore the message, then schedule a timer
@@ -255,12 +256,12 @@ int main(int argc, char *argv[]) {
 	struct itimerspec delay = {.it_value = {.tv_sec = DELAY_PERIOD}};
 	int result = timerfd_settime(timer, 0, &delay, NULL);
 	if (result < 0) {
-	  dprintf(logfd, "Failed to schedule timer: %d %d\n", result, errno);
+	  aplog("Failed to schedule timer: %d %d\n", result, errno);
 	  goto exit;
 	} else {
 	  if (debug) {
 	    time_t now = time(NULL);
-	    dprintf(logfd, "Scheduled timer at %ld\n", now);
+	    aplog("Scheduled timer at %ld\n", now);
 	  }
 	}
       }
@@ -271,24 +272,24 @@ int main(int argc, char *argv[]) {
       uint64_t firings = 0;
       if (debug) {
 	time_t now = time(NULL);
-        dprintf(logfd, "Timer event has fired at %ld\n", now);
+        aplog("Timer event has fired at %ld\n", now);
       }
       ssize_t len = read(timer, &firings, sizeof firings);
       if (len < 0) {
-        dprintf(logfd, "Failed to read from clock timer: %ld %d\n", len, errno);
+        aplog("Failed to read from clock timer: %ld %d\n", len, errno);
         goto exit;
       }
       if (len != sizeof firings) {
-        dprintf(logfd, "Read from clock timer got unexpected length: %ld %d\n", len, errno);
+        aplog("Read from clock timer got unexpected length: %ld %d\n", len, errno);
         goto exit;
       }
       if (debug) {
 	time_t now = time(NULL);
-	dprintf(logfd, "At %ld timer has fired %lu time(s)\n", now, firings);
+	aplog("At %ld timer has fired %lu time(s)\n", now, firings);
       }
       if (FindAdapter(&recv_state)) {
 	time_t now = time(NULL);
-	dprintf(logfd, "Failed to find adapter, not exiting (time is %ld)\n", now);
+	aplog("Failed to find adapter, not exiting (time is %ld)\n", now);
       } else {
 	// Now that we've got a NIC send a request to get the default gateway.
 	SendRouteQuery(&recv_state, nl);
@@ -305,56 +306,56 @@ int main(int argc, char *argv[]) {
 
     status = recv(recv_state.recv_sock, recv_frame, sizeof recv_frame, 0);
     if (status < 0) {
-      dprintf(logfd, "Recv failed: %d %d\n", status, errno);
+      aplog("Recv failed: %d %d\n", status, errno);
       break;
     }
     if (debug) {
-      dprintf(logfd, "Received frame of length: %d\n", status);
+      aplog("Received frame of length: %d\n", status);
     }
 
     // If frame isn't ARP then poll for the next frame.
     if (status < ETH_HLEN + sizeof(ArpHeader)) {
-      dprintf(logfd, "Packet too short for ARP: %d\n", status);
+      aplog("Packet too short for ARP: %d\n", status);
       continue;
     }
     if (*recv_proto != htons(ETH_P_ARP)) {
       if (debug) {
-	dprintf(logfd, "Didn't get arp\n");
+	aplog("Didn't get arp\n");
       }
       continue;
     }
 
     if (debug) {
       time_t now = time(NULL);
-      dprintf(logfd, "At %ld received arp: type 0x%x proto 0x%x hlen %u plen %u op %u, "
-	      "smac %02x:%02x:%02x:%02x:%02x:%02x sip %u.%u.%u.%u "
-	      "tmac %02x:%02x:%02x:%02x:%02x:%02x tip %u.%u.%u.%u\n",
-	      now,
-	      ntohs(recv_arp->header_type), ntohs(recv_arp->proto_type),
-	      recv_arp->header_len, recv_arp->proto_len,
-	      ntohs(recv_arp->op_code),
-	      recv_arp->sender_mac[0], recv_arp->sender_mac[1], recv_arp->sender_mac[2],
-	      recv_arp->sender_mac[3], recv_arp->sender_mac[4], recv_arp->sender_mac[5],
-	      recv_arp->sender_ip[0], recv_arp->sender_ip[1],
-	      recv_arp->sender_ip[2], recv_arp->sender_ip[3],
-	      recv_arp->target_mac[0], recv_arp->target_mac[1], recv_arp->target_mac[2],
-	      recv_arp->target_mac[3], recv_arp->target_mac[4], recv_arp->target_mac[5],
-	      recv_arp->target_ip[0], recv_arp->target_ip[1],
-	      recv_arp->target_ip[2], recv_arp->target_ip[3]);
+      aplog("At %ld received arp: type 0x%x proto 0x%x hlen %u plen %u op %u, "
+	    "smac %02x:%02x:%02x:%02x:%02x:%02x sip %u.%u.%u.%u "
+	    "tmac %02x:%02x:%02x:%02x:%02x:%02x tip %u.%u.%u.%u\n",
+	    now,
+	    ntohs(recv_arp->header_type), ntohs(recv_arp->proto_type),
+	    recv_arp->header_len, recv_arp->proto_len,
+	    ntohs(recv_arp->op_code),
+	    recv_arp->sender_mac[0], recv_arp->sender_mac[1], recv_arp->sender_mac[2],
+	    recv_arp->sender_mac[3], recv_arp->sender_mac[4], recv_arp->sender_mac[5],
+	    recv_arp->sender_ip[0], recv_arp->sender_ip[1],
+	    recv_arp->sender_ip[2], recv_arp->sender_ip[3],
+	    recv_arp->target_mac[0], recv_arp->target_mac[1], recv_arp->target_mac[2],
+	    recv_arp->target_mac[3], recv_arp->target_mac[4], recv_arp->target_mac[5],
+	    recv_arp->target_ip[0], recv_arp->target_ip[1],
+	    recv_arp->target_ip[2], recv_arp->target_ip[3]);
     }
 
     // Verify ARP is for Ethernet and IPv4.
     if (recv_arp->header_type != htons(ARPHRD_ETHER) || recv_arp->proto_type != htons(ETH_P_IP) ||
         recv_arp->header_len != MAC_LEN || recv_arp->proto_len != IP_LEN) {
-      dprintf(logfd, "Not an Ethernet ARP: type %u proto %u hlen %u plen %u\n", ntohs(recv_arp->header_type),
-	      ntohs(recv_arp->proto_type), recv_arp->header_len, recv_arp->proto_len);
+      aplog("Not an Ethernet ARP: type %u proto %u hlen %u plen %u\n", ntohs(recv_arp->header_type),
+	    ntohs(recv_arp->proto_type), recv_arp->header_len, recv_arp->proto_len);
       continue;
     }
 
     // Verify this is an ARP request.
     if (recv_arp->op_code != htons(ARPOP_REQUEST)) {
       if (debug) {
-        dprintf(logfd, "Not an arp request: %u\n", ntohs(recv_arp->op_code));
+        aplog("Not an arp request: %u\n", ntohs(recv_arp->op_code));
       }
       continue;
     } 
@@ -367,7 +368,7 @@ int main(int argc, char *argv[]) {
       memcpy(&(send_arp->target_ip), recv_arp->sender_ip, IP_LEN);
     } else {
       if (debug) {
-	dprintf(logfd, "ARP didn't match a router\n");
+	aplog("ARP didn't match a router\n");
       }
       continue;
     }
@@ -394,86 +395,91 @@ int main(int argc, char *argv[]) {
       }
 
       if (target->seen_count < WAIT_COUNT) {
-	dprintf(logfd, "Request for %u.%u.%u.%u only seen %u time(s) in %u seconds so far (time is %ld)\n",
-		target->ip[0], target->ip[1], target->ip[2], target->ip[3],
-		target->seen_count, WAIT_PERIOD, now);
+	aplog("Request for %u.%u.%u.%u only seen %u time(s) in %u seconds so far (time is %ld)\n",
+	      target->ip[0], target->ip[1], target->ip[2], target->ip[3],
+	      target->seen_count, WAIT_PERIOD, now);
 	continue;
       }
 
       // Sufficient ARP queries have been seen, so send a reply.
 
-      dprintf(logfd, "Request for %u.%u.%u.%u seen %u time(s) in %u seconds so sending reply (time is %ld)\n",
-	      target->ip[0], target->ip[1], target->ip[2], target->ip[3],
-	      target->seen_count, WAIT_PERIOD, now);
+      aplog("Request for %u.%u.%u.%u seen %u time(s) in %u seconds so sending reply (time is %ld)\n",
+	    target->ip[0], target->ip[1], target->ip[2], target->ip[3],
+	    target->seen_count, WAIT_PERIOD, now);
 
       // Populate the target for ARP sender (Broadcast MAC seem to be required
       // by Synology NASes for this to work).
       memset(&(send_arp->sender_mac), 0xFF, sizeof(send_arp->sender_mac));
       memcpy(&(send_arp->sender_ip), target->ip, sizeof(send_arp->sender_ip));
       if (debug) {
-	dprintf(logfd, "Sender result: arp type 0x%x proto 0x%x hlen %u plen %u op %u, "
+	aplog("Sender result: arp type 0x%x proto 0x%x hlen %u plen %u op %u, "
+	      "smac %02x:%02x:%02x:%02x:%02x:%02x sip %u.%u.%u.%u "
+	      "tmac %02x:%02x:%02x:%02x:%02x:%02x tip %u.%u.%u.%u\n",
+	      ntohs(send_arp->header_type), ntohs(send_arp->proto_type),
+	      send_arp->header_len, send_arp->proto_len,
+	      ntohs(send_arp->op_code),
+	      send_arp->sender_mac[0], send_arp->sender_mac[1], send_arp->sender_mac[2],
+	      send_arp->sender_mac[3], send_arp->sender_mac[4], send_arp->sender_mac[5],
+	      send_arp->sender_ip[0], send_arp->sender_ip[1],
+	      send_arp->sender_ip[2], send_arp->sender_ip[3],
+	      send_arp->target_mac[0], send_arp->target_mac[1], send_arp->target_mac[2],
+	      send_arp->target_mac[3], send_arp->target_mac[4], send_arp->target_mac[5],
+	      send_arp->target_ip[0], send_arp->target_ip[1],
+	      send_arp->target_ip[2], send_arp->target_ip[3]);
+      }
+#if DISABLE_SEND
+      int send_result = MAX(ETH_HLEN + sizeof(ArpHeader), 60);
+      aplog("sendto() DISABLED, so not actually sent");
+#else
+      int send_result = sendto(send_sock, &send_frame, MAX(ETH_HLEN + sizeof(ArpHeader), 60),
+			       0, (struct sockaddr *) &(recv_state.device_sockaddr),
+			       sizeof recv_state.device_sockaddr);
+#endif
+      if (send_result <= 0) {
+	aplog("sendto() failed: %d %d\n", send_result, errno);
+      } else {
+	time_t now = time(NULL);
+	if (debug) {
+	  aplog("Sent reply at %ld: dst %02x:%02x:%02x:%02x:%02x:%02x "
+		"src %02x:%02x:%02x:%02x:%02x:%02x ethproto 0x%04x "
+		"arp type 0x%x proto 0x%x hlen %u plen %u op %u, "
 		"smac %02x:%02x:%02x:%02x:%02x:%02x sip %u.%u.%u.%u "
 		"tmac %02x:%02x:%02x:%02x:%02x:%02x tip %u.%u.%u.%u\n",
+		now,
+		send_frame[0], send_frame[1], send_frame[2],
+		send_frame[3], send_frame[4], send_frame[5],
+		send_frame[6], send_frame[7], send_frame[8],
+		send_frame[9], send_frame[10], send_frame[11],
+		ntohs(*(uint16_t*)&(send_frame[12])),
 		ntohs(send_arp->header_type), ntohs(send_arp->proto_type),
 		send_arp->header_len, send_arp->proto_len,
 		ntohs(send_arp->op_code),
 		send_arp->sender_mac[0], send_arp->sender_mac[1], send_arp->sender_mac[2],
-	        send_arp->sender_mac[3], send_arp->sender_mac[4], send_arp->sender_mac[5],
+		send_arp->sender_mac[3], send_arp->sender_mac[4], send_arp->sender_mac[5],
 		send_arp->sender_ip[0], send_arp->sender_ip[1],
 		send_arp->sender_ip[2], send_arp->sender_ip[3],
-	        send_arp->target_mac[0], send_arp->target_mac[1], send_arp->target_mac[2],
+		send_arp->target_mac[0], send_arp->target_mac[1], send_arp->target_mac[2],
 		send_arp->target_mac[3], send_arp->target_mac[4], send_arp->target_mac[5],
 		send_arp->target_ip[0], send_arp->target_ip[1],
 		send_arp->target_ip[2], send_arp->target_ip[3]);
-      }
-      int send_result = sendto(send_sock, &send_frame, MAX(ETH_HLEN + sizeof(ArpHeader), 60),
-			       0, (struct sockaddr *) &(recv_state.device_sockaddr),
-			       sizeof recv_state.device_sockaddr);
-      if (send_result <= 0) {
-	dprintf(logfd, "sendto() failed: %d %d\n", send_result, errno);
-      } else {
-	time_t now = time(NULL);
-	if (debug) {
-	  dprintf(logfd, "Sent reply at %ld: dst %02x:%02x:%02x:%02x:%02x:%02x "
-		  "src %02x:%02x:%02x:%02x:%02x:%02x ethproto 0x%04x "
-		  "arp type 0x%x proto 0x%x hlen %u plen %u op %u, "
-		  "smac %02x:%02x:%02x:%02x:%02x:%02x sip %u.%u.%u.%u "
-		  "tmac %02x:%02x:%02x:%02x:%02x:%02x tip %u.%u.%u.%u\n",
-		  now,
-		  send_frame[0], send_frame[1], send_frame[2],
-		  send_frame[3], send_frame[4], send_frame[5],
-		  send_frame[6], send_frame[7], send_frame[8],
-		  send_frame[9], send_frame[10], send_frame[11],
-		  ntohs(*(uint16_t*)&(send_frame[12])),
-		  ntohs(send_arp->header_type), ntohs(send_arp->proto_type),
-		  send_arp->header_len, send_arp->proto_len,
-		  ntohs(send_arp->op_code),
-		  send_arp->sender_mac[0], send_arp->sender_mac[1], send_arp->sender_mac[2],
-		  send_arp->sender_mac[3], send_arp->sender_mac[4], send_arp->sender_mac[5],
-		  send_arp->sender_ip[0], send_arp->sender_ip[1],
-		  send_arp->sender_ip[2], send_arp->sender_ip[3],
-		  send_arp->target_mac[0], send_arp->target_mac[1], send_arp->target_mac[2],
-		  send_arp->target_mac[3], send_arp->target_mac[4], send_arp->target_mac[5],
-		  send_arp->target_ip[0], send_arp->target_ip[1],
-		  send_arp->target_ip[2], send_arp->target_ip[3]);
 	} else {
-	  dprintf(logfd, "Successfully sent arp reply for %u.%u.%u.%u to %u.%u.%u.%u at %ld\n",
-		  send_arp->sender_ip[0], send_arp->sender_ip[1],
-                  send_arp->sender_ip[2], send_arp->sender_ip[3],
-		  send_arp->target_ip[0], send_arp->target_ip[1],
-                  send_arp->target_ip[2], send_arp->target_ip[3],
-		  now);
+	  aplog("Successfully sent arp reply for %u.%u.%u.%u to %u.%u.%u.%u at %ld\n",
+		send_arp->sender_ip[0], send_arp->sender_ip[1],
+		send_arp->sender_ip[2], send_arp->sender_ip[3],
+		send_arp->target_ip[0], send_arp->target_ip[1],
+		send_arp->target_ip[2], send_arp->target_ip[3],
+		now);
 	}
       }
     }
     if (target_count < 1) {
       if (debug) {
-	dprintf(logfd, "ARP didn't match a target\n");
+	aplog("ARP didn't match a target\n");
       }
       continue;
     }
     if (debug) {
-      dprintf(logfd, "ARP matched a router and a target\n");
+      aplog("ARP matched a router and a target\n");
     }
   }
 
@@ -481,7 +487,7 @@ exit:
 
   {
     time_t now = time(NULL);
-    dprintf(logfd, "Exiting at time %ld\n", now);
+    aplog("Exiting at time %ld\n", now);
   }
   
   FreeRecvState(&recv_state);
@@ -527,19 +533,29 @@ void UpdateSendBuffer(char *send_frame, RecvState *state) {
   }
   // target_mac and target_ip will be populated later.
   if (debug) {
-    dprintf(logfd, "Sender template: type 0x%x proto 0x%x hlen %u plen %u op %u, "
-            "smac %02x:%02x:%02x:%02x:%02x:%02x sip %u.%u.%u.%u "
-            "tmac %02x:%02x:%02x:%02x:%02x:%02x tip %u.%u.%u.%u\n",
-            ntohs(send_arp->header_type), ntohs(send_arp->proto_type),
-            send_arp->header_len, send_arp->proto_len,
-            ntohs(send_arp->op_code),
-            send_arp->sender_mac[0], send_arp->sender_mac[1], send_arp->sender_mac[2],
-            send_arp->sender_mac[3], send_arp->sender_mac[4], send_arp->sender_mac[5],
-            send_arp->sender_ip[0], send_arp->sender_ip[1],
-            send_arp->sender_ip[2], send_arp->sender_ip[3],
-            send_arp->target_mac[0], send_arp->target_mac[1], send_arp->target_mac[2],
-            send_arp->target_mac[3], send_arp->target_mac[4], send_arp->target_mac[5],
-            send_arp->target_ip[0], send_arp->target_ip[1],
-            send_arp->target_ip[2], send_arp->target_ip[3]);
+    aplog("Sender template: type 0x%x proto 0x%x hlen %u plen %u op %u, "
+	  "smac %02x:%02x:%02x:%02x:%02x:%02x sip %u.%u.%u.%u "
+	  "tmac %02x:%02x:%02x:%02x:%02x:%02x tip %u.%u.%u.%u\n",
+	  ntohs(send_arp->header_type), ntohs(send_arp->proto_type),
+	  send_arp->header_len, send_arp->proto_len,
+	  ntohs(send_arp->op_code),
+	  send_arp->sender_mac[0], send_arp->sender_mac[1], send_arp->sender_mac[2],
+	  send_arp->sender_mac[3], send_arp->sender_mac[4], send_arp->sender_mac[5],
+	  send_arp->sender_ip[0], send_arp->sender_ip[1],
+	  send_arp->sender_ip[2], send_arp->sender_ip[3],
+	  send_arp->target_mac[0], send_arp->target_mac[1], send_arp->target_mac[2],
+	  send_arp->target_mac[3], send_arp->target_mac[4], send_arp->target_mac[5],
+	  send_arp->target_ip[0], send_arp->target_ip[1],
+	  send_arp->target_ip[2], send_arp->target_ip[3]);
+  }
+}
+
+void aplog(const char *restrict format, ...) {
+  va_list va;
+  va_start(va, format);
+  vdprintf(logfd, format, va);
+  va_end(va);
+  if (debug) {
+    fsync(logfd);
   }
 }

@@ -1,8 +1,12 @@
 [Unit]
 Description=Arp proxy service
 After=multi-user.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
 
 [Service]
+Restart=on-failure
+RestartSec=10s
 Type=idle
 ExecStart=/usr/sbin/arpproxy
 
